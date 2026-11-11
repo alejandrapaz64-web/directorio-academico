@@ -362,14 +362,16 @@ function opciones(sel,valores,todos){
   const actual=sel.value;
   sel.innerHTML=`<option value="">${todos}</option>`+valores.map(v=>`<option value="${esc(v.v)}">${esc(v.t)}</option>`).join("");
   if(valores.some(v=>v.v===actual)) sel.value=actual;
+  sel.disabled=!valores.length;
 }
 function prepararFiltros(){
-  const uniq=f=>[...new Set(academicos.map(f).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es")).map(v=>({v,t:v}));
+  const base=academicos.filter(a=>partVisibles(a).length);
+  const uniq=f=>[...new Set(base.map(f).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es")).map(v=>({v,t:v}));
   opciones($("fRol"),[{v:"jurado",t:"Jurado (todos)"},{v:"disertacion",t:"Jurado de disertación"},{v:"defensa",t:"Jurado de defensa"},{v:"direccion",t:"Director/a de tesis"},{v:"codireccion",t:"Codirector/a de tesis"}],"Todos los roles");
   opciones($("fInst"),uniq(a=>a.institucion),"Todas");
   opciones($("fPais"),uniq(a=>a.pais),"Todos");
   opciones($("fLinea"),uniq(a=>a.linea),"Todas");
-  const anios=[...new Set(academicos.flatMap(a=>a.participaciones.map(p=>p.anio)).filter(Boolean))].sort((a,b)=>b-a).map(v=>({v,t:v}));
+  const anios=[...new Set(base.flatMap(a=>partVisibles(a).map(p=>p.anio)).filter(Boolean))].sort((a,b)=>b-a).map(v=>({v,t:v}));
   opciones($("fAnio"),anios,"Todos");
 }
 function kpis(){
@@ -388,8 +390,24 @@ function filtrar(){
   }).filter(({a,parts})=>parts.length&&(!window.soloIntl||esInternacional(a.pais))&&(!inst||a.institucion===inst)&&(!pais||a.pais===pais)&&(!linea||a.linea===linea)
     &&(!q||norm([a.tratamiento,a.nombre,a.institucion,a.pais,a.linea,a.experticia,...a.participaciones.map(p=>p.titulo+" "+p.estudiante)].join(" ")).includes(q)));
 }
+function contarPrograma(p){ return academicos.filter(a=>a.participaciones.some(x=>!p||x.programa===p)).length; }
 function render(){
   kpis();
+  document.querySelectorAll(".programas button").forEach(b=>{
+    if(!b.dataset.etq) b.dataset.etq=b.textContent;
+    b.textContent=b.dataset.etq+" ("+contarPrograma(b.dataset.programa)+")";
+  });
+  const hayPrograma=academicos.some(a=>partVisibles(a).length);
+  document.querySelector(".filtros").hidden=!hayPrograma;
+  document.querySelector(".estado-der").hidden=!hayPrograma;
+  pintarResumenRoles();
+  if(academicos.length&&!hayPrograma){
+    $("conteo").textContent="0 académicos";
+    $("vistaMapa").hidden=true; $("lista").hidden=false;
+    $("lista").innerHTML='<div class="vacio" style="grid-column:1/-1;background:#fff;border:1px solid var(--gris2);border-radius:16px;"><p>Aún no hay académicos registrados para este programa.</p></div>';
+    return;
+  }
+  $("lista").hidden=vista!=="lista"; $("vistaMapa").hidden=vista!=="mapa";
   const orden=$("orden").value;
   const res=filtrar().sort((x,y)=>{
     if(orden==="participaciones") return y.parts.length-x.parts.length||x.a.nombre.localeCompare(y.a.nombre,"es");
@@ -593,7 +611,8 @@ document.addEventListener("DOMContentLoaded",()=>{
   document.querySelectorAll(".programas button").forEach(b=>b.addEventListener("click",()=>{
     programa=b.dataset.programa;
     document.querySelectorAll(".programas button").forEach(x=>x.setAttribute("aria-pressed",x===b?"true":"false"));
-    render();
+    ["fRol","fInst","fPais","fLinea","fAnio"].forEach(id=>$(id).value=""); window.soloIntl=false;
+    prepararFiltros(); render();
   }));
   ["fRol","fInst","fPais","fLinea","fAnio","orden"].forEach(id=>$(id).addEventListener("change",render));
   $("q").addEventListener("input",render);
