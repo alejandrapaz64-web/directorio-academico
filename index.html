@@ -546,17 +546,46 @@ function detalle(i){
   $("dlg").showModal();
 }
 function limpiar(){["fRol","fInst","fPais","fLinea","fAnio"].forEach(id=>$(id).value="");$("q").value="";window.soloIntl=false;render();}
-async function cargar(){
+const CACHE_DIR="nexo_directorio_cache_v1";
+async function fetchJSON(url,ms){
+  const ctrl=("AbortController" in window)?new AbortController():null;
+  const t=setTimeout(()=>{ if(ctrl) ctrl.abort(); },ms);
   try{
-    const r=await jsonp(API);
+    const r=await fetch(url,{credentials:"omit",cache:"no-store",redirect:"follow",signal:ctrl?ctrl.signal:undefined});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    return await r.json();
+  }finally{ clearTimeout(t); }
+}
+async function obtenerDirectorio(){
+  const url=API+(API.includes("?")?"&":"?")+"accion=directorio&_="+Date.now();
+  try{ return await fetchJSON(url,25000); }
+  catch(e){ console.warn("Lectura directa falló, se intenta alternativa",e); return await jsonp(API); }
+}
+function aplicarDatos(r){
+  academicos=(r.academicos||[]).map(a=>Object.assign({},a,{participaciones:(a.participaciones||[]).filter(p=>!p.programa||/doctorado/i.test(p.programa))}))
+    .filter(a=>a.participaciones.length);
+  prepararFiltros(); render();
+}
+function leerCache(){ try{ return JSON.parse(localStorage.getItem(CACHE_DIR)||"null"); }catch(e){ return null; } }
+function guardarCache(r){ try{ localStorage.setItem(CACHE_DIR,JSON.stringify({t:Date.now(),r})); }catch(e){} }
+async function cargar(intento){
+  intento=intento||1;
+  const cache=leerCache();
+  if(cache&&cache.r&&intento===1){ aplicarDatos(cache.r); }
+  try{
+    const r=await obtenerDirectorio();
     if(!r||!r.ok) throw new Error((r&&r.error)||"error");
-    academicos=(r.academicos||[]).map(a=>Object.assign({},a,{participaciones:(a.participaciones||[]).filter(p=>!p.programa||/doctorado/i.test(p.programa))}))
-      .filter(a=>a.participaciones.length);
-    prepararFiltros(); render();
+    guardarCache(r); aplicarDatos(r);
   }catch(e){
     console.error(e);
+    if(intento<2){ setTimeout(()=>cargar(intento+1),1500); return; }
+    if(cache&&cache.r){
+      const f=new Date(cache.t);
+      $("conteo").textContent=$("conteo").textContent+" · información guardada del "+f.toLocaleDateString("es-CO")+" (sin conexión al registro)";
+      return;
+    }
     $("conteo").textContent="No fue posible cargar el directorio.";
-    $("lista").innerHTML='<div class="vacio" style="grid-column:1/-1;background:#fff;border:1px solid var(--gris2);border-radius:16px;"><p>No fue posible conectar con el registro en este momento. Intenta de nuevo en unos minutos.</p><button type="button" class="btn btn-sec" onclick="location.reload()">Reintentar</button></div>';
+    $("lista").innerHTML='<div class="vacio" style="grid-column:1/-1;background:#fff;border:1px solid var(--gris2);border-radius:16px;"><p>No fue posible conectar con el registro en este momento. Revisa tu conexión a internet e intenta de nuevo.</p><button type="button" class="btn btn-sec" onclick="location.reload()">Reintentar</button></div>';
   }
 }
 document.addEventListener("DOMContentLoaded",()=>{
